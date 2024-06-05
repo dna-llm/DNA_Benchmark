@@ -167,7 +167,72 @@ class GPNEmbedder(BaseEmbedder):
 ##
 ## DNABert https://doi.org/10.1093/bioinformatics/btab083
 ## Download from https://github.com/jerryji1993/DNABERT
+class PythiaEmbedder(BaseEmbedder):
+    '''Embed using the GPN model https://www.biorxiv.org/content/10.1101/2022.08.22.504706v1'''
 
+    def load_model(self, model_name: str = "DNA-LLM/virus-pythia-85M-1024-two_d" , **kwargs):
+        """Load the Pythia model.
+        Parameters
+        ----------
+        model_name : str
+            The name of the model to load. Defaults to "DNA-LLM/virus-pythia-85M-1024-two_d".
+            When providing a name, the model will be loaded from the HuggingFace model hub.
+            Alternatively, you can provide a path to a local model directory.
+        Raises
+        ------
+        ModuleNotFoundError
+            If the gpn module is not installed.
+        Notes
+        -----
+        The gpn module can be installed with `pip install git+https://github.com/songlab-cal/gpn.git`
+        """
+
+
+
+        self.model = AutoModel.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        self.model.to(device)
+        self.model.eval()
+
+    def embed(self, sequences: List[str], disable_tqdm: bool = False, upsample_embeddings: bool = False) -> List[np.ndarray]:
+        """
+        Embed a list of sequences.
+        
+        Parameters
+        ----------
+        sequences : List[str]
+            The sequences to embed.
+        disable_tqdm : bool, optional
+            Whether to disable the tqdm progress bar. Defaults to False.
+        upsample_embeddings : bool, optional
+            Whether to upsample the embeddings to the length of the input sequence. Defaults to False.
+            Only provided for compatibility with other embedders. GPN embeddings are already the same length as the input sequence.
+        Returns
+        -------
+        List[np.ndarray]
+            The embeddings of the sequences.
+        """
+        # '''Run the GPN model https://www.biorxiv.org/content/10.1101/2022.08.22.504706v1'''
+
+        embeddings = []
+        with torch.no_grad():
+            for seq in tqdm(sequences, disable=disable_tqdm):
+                 input_ids = self.tokenizer(seq, return_tensors="pt", return_attention_mask=False, return_token_type_ids=False)["input_ids"]
+                 model_input = input_ids
+                 if model_input.shape[1] > 1024:
+                    model_input = torch.split(model_input, 1024, dim=1)
+                    output = []
+                    for chunk in model_input: 
+                        output.append(self.model(chunk.to(device))[0].detach().cpu())
+                    output = torch.cat(output, dim=1).numpy()
+                else:
+                    output = self.model(model_input.to(device))[0].detach().cpu().numpy()
+                # output = generate_2d_sequence(seq)
+                embedding = output
+                embeddings.append(embedding)
+
+        return embeddings
 class DNABertEmbedder(BaseEmbedder):
     '''Embed using the DNABert model https://doi.org/10.1093/bioinformatics/btab083'''
 
